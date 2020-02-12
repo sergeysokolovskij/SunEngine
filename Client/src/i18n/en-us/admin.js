@@ -242,7 +242,7 @@ export default {
 		users: "Users",
 		filter: "Filter",
 		noResults: "Not found",
-		filterLimitReached: "First {0} results are derived"
+		filterLimitReached: "Showed first {maxUsersTake} results/"
 	},
 
 	// ——— all ————————————————————————————————————
@@ -280,6 +280,8 @@ export default {
 	},
 	AdminInformation: {
 		title: "Information",
+		support: "Donate SunEngine project",
+		supportInfo: "If you love SunEngine support it:",
 		siteName: "Site name",
 		serverName: "Server name",
 		serverVersion: "Server version",

@@ -260,7 +260,7 @@ export default {
 		users: "Пользователи",
 		filter: "Фильтр",
 		noResults: "Нет результатов",
-		filterLimitReached: "Выведены первые {0} результатов"
+		filterLimitReached: "Выведены первые {maxUsersTake} результатов"
 	},
 
 	// ——— all ————————————————————————————————————
@@ -307,6 +307,8 @@ export default {
 	},
 	AdminInformation: {
 		title: "Информация",
+		support: "Поддержать проект SunEngine",
+		supportInfo: "Если вам нравится проект SunEngine, поддержите его:",
 		siteName: "Имя сайта",
 		serverName: "Имя сервера",
 		serverVersion: "Версия сервера",

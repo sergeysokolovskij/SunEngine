@@ -1,8 +1,17 @@
 #!/bin/bash
 
+#   ***************************************
+#   *                                     *
+#   *    install and update SunEngine     *
+#   *        Script version: 0.1          *
+#   *                                     *
+#   ***************************************
+
+
 DIRECTORY=""
 PGPASS="postgre"
 PGPORT="5432"
+PGUSERPASS=`head /dev/random | tr -dc A-Za-z0-9 | head -c 16`
 HOST="localhost"
 SILENT=false
 
@@ -15,6 +24,8 @@ while true; do
             echo "    -d, --directory   Путь к папке установки";
             echo "    -p, --pgpass      Пароль PostgreSQL от юзера postgres";
             echo "                      (какой сейчас установлен или какой поставить при установке PostgreSQL)";
+            echo "    -P, --pguserpass  Пароль PostgreSQL от пользователя от оимени которого создается БД (значение ключа --host)";
+            echo "                      (значение по умолчанию 16 случайных сииволов, задавать вручную только когда пользователь уже создан)";
             echo "    -H, --host        Домен либо ip";
             echo "    -s, --silent      Установка без участия пользователя (на все вапросы отвечать да)";
             exit 0;
@@ -25,6 +36,10 @@ while true; do
         ;;
         -p | --pgpass )
             PGPASS="$2"
+            shift 2
+        ;;
+        -P | --pguserpass )
+            PGUSERPASS="$2"
             shift 2
         ;;
         -H | --host )
@@ -168,17 +183,24 @@ checkPostgreSQLVersion() {
 
 checkPostgreSQLVersion
 
+
+# проверяем существование БД
 if (su - postgres -c "psql -l -At" | grep "^$HOST|" > /dev/null)
 then
     if ($SILENT || whiptail --title "PostgreSQL" --yesno "Обнаружена БД скорее всего она осталась от предыдущей установки, удалить?" 11 60)
     then
-        su - postgres -c "dropdb "
+        su - postgres -c "dropdb $HOST"
     fi
 else
-    echo  "нету"
+    ddd=$(su - postgres -c "psql -c \"CREATE USER \\\"$HOST\\\" WITH PASSWORD '$PGUSERPASS';\"" 2>&1)
+    if [ "$ddd" != "CREATE ROLE" ]
+    then
+        DBUSERPASS=$(whiptail --title  "Пароль $HOST" --inputbox  "Введите пароль от для PostgreSQL пользователя $HOST" 10 60 Wigglebutt 3>&1 1>&2 2>&3)
+    fi
+    echo "нету"
 fi
 
-    psql postgresql://postgres:$PGPASS@127.0.0.1:$PGPORT/$HOST << EOF
-       <your sql queries go here>
-EOF
+    su - postgres -c "psql postgresql://postgres:$PGPASS@127.0.0.1:$PGPORT/$HOST << EOF
+       CREATE USER davide WITH PASSWORD 'jw8s0F4';
+EOF"
 

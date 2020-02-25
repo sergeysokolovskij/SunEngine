@@ -3,7 +3,7 @@
 #   ***************************************
 #   *                                     *
 #   *    install and update SunEngine     *
-#   *        Script version: 0.1          *
+#   *        Script version: 0.11         *
 #   *                                     *
 #   ***************************************
 
@@ -22,11 +22,11 @@ while true; do
         -h | --help )
             echo "    -h, --help        Информация о командах";
             echo "    -d, --directory   Путь к папке установки";
+            echo "    -H, --host        Домен либо ip (заодно имя БД и имя пользователя БД)";
             echo "    -p, --pgpass      Пароль PostgreSQL от юзера postgres";
             echo "                      (какой сейчас установлен или какой поставить при установке PostgreSQL)";
             echo "    -P, --pguserpass  Пароль PostgreSQL от пользователя от оимени которого создается БД (значение ключа --host)";
             echo "                      (значение по умолчанию 16 случайных сииволов, задавать вручную только когда пользователь уже создан)";
-            echo "    -H, --host        Домен либо ip";
             echo "    -s, --silent      Установка без участия пользователя (на все вапросы отвечать да)";
             exit 0;
         ;;
@@ -190,6 +190,9 @@ then
     if ($SILENT || whiptail --title "PostgreSQL" --yesno "Обнаружена БД скорее всего она осталась от предыдущей установки, удалить?" 11 60)
     then
         su - postgres -c "dropdb $HOST"
+    else
+        echo "БД уже есть, возможно вы хотели запустить обновление а не установку?"
+        exit 0;
     fi
 else
     ddd=$(su - postgres -c "psql -c \"CREATE USER \\\"$HOST\\\" WITH PASSWORD '$PGUSERPASS';\"" 2>&1)

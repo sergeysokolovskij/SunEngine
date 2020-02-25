@@ -3,7 +3,7 @@
 #   ***************************************
 #   *                                     *
 #   *    install and update SunEngine     *
-#   *        Script version: 0.11         *
+#   *        Script version: 0.12         *
 #   *                                     *
 #   ***************************************
 
@@ -14,6 +14,9 @@ PGPORT="5432"
 PGUSERPASS=`head /dev/random | tr -dc A-Za-z0-9 | head -c 16`
 HOST="localhost"
 SILENT=false
+
+# Временный ключ для отладки, для ускорения запуска скрипта
+F=true
 
 #region разбор параметров
 
@@ -50,6 +53,10 @@ while true; do
             SILENT=true
             shift
         ;;
+        -f)
+            F=false
+            shift
+        ;;
         -- )
             shift
             break
@@ -79,9 +86,13 @@ distr=$(grep ^ID /etc/*-release | cut -f2 -d'=')
 # версия дистрибутива
 version=$(grep ^VERSION_ID /etc/*-release | cut -f2 -d'=' | sed -e 's/^"//' -e 's/"$//')
 
-# ставим "зависимости" скрипта
-$SILENTINSTALL apt-get update
-$SILENTINSTALL apt-get -y install wget apt-transport-https dpkg
+
+if $F
+then
+    # ставим "зависимости" скрипта
+    $SILENTINSTALL apt-get update
+    $SILENTINSTALL apt-get -y install wget apt-transport-https dpkg git
+fi
 
 # Окно ошибки
 Error() {
@@ -164,7 +175,10 @@ then
 fi
 
 #проверяем установлен дотнет или нет
-checkDotnetVersion
+if $F
+then
+    checkDotnetVersion
+fi
 
 #endregion
 
@@ -181,7 +195,10 @@ checkPostgreSQLVersion() {
     echo "postgresql-11 установлен"
 }
 
-checkPostgreSQLVersion
+if $F
+then
+    checkPostgreSQLVersion
+fi
 
 
 # проверяем существование БД
@@ -194,16 +211,29 @@ then
         echo "БД уже есть, возможно вы хотели запустить обновление а не установку?"
         exit 0;
     fi
-else
-    ddd=$(su - postgres -c "psql -c \"CREATE USER \\\"$HOST\\\" WITH PASSWORD '$PGUSERPASS';\"" 2>&1)
-    if [ "$ddd" != "CREATE ROLE" ]
-    then
-        DBUSERPASS=$(whiptail --title  "Пароль $HOST" --inputbox  "Введите пароль от для PostgreSQL пользователя $HOST" 10 60 Wigglebutt 3>&1 1>&2 2>&3)
-    fi
-    echo "нету"
 fi
 
-    su - postgres -c "psql postgresql://postgres:$PGPASS@127.0.0.1:$PGPORT/$HOST << EOF
-       CREATE USER davide WITH PASSWORD 'jw8s0F4';
-EOF"
+# Проверяем пользователя от бд, ведь для безопасности для всего должны быть свои пользователи верно?
+ddd=$(su - postgres -c "psql -c \"CREATE USER \\\"$HOST\\\" WITH PASSWORD '$PGUSERPASS';\"" 2>&1)
+if [ "$ddd" != "CREATE ROLE" ]
+then
+    DBUSERPASS=$(whiptail --title  "Пароль $HOST" --inputbox  "Введите пароль от PostgreSQL пользователя $HOST" 10 60 "" 3>&1 1>&2 2>&3)
+    # Обработка кнопки "Отмена"
+    exitstatus=$?
+    if [[ $exitstatus != 0 ]]
+    then
+        exit 0;
+    fi
+fi
 
+# качаем файлы SunEngine
+cd $DIRECTORY
+git clone "https://github.com/sunengine/SunEngine.Build"
+
+
+# Заполняем БД данными
+dotnet SunEngine.dll init migrate
+
+
+
+echo $ddd

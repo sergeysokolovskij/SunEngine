@@ -3,22 +3,19 @@
 #   ***************************************
 #   *                                     *
 #   *    install and update SunEngine     *
-#   *        Script version: 0.12         *
+#   *        Script version: 0.3          *
 #   *                                     *
 #   ***************************************
 
-
-DIRECTORY="./"
+DIRECTORY=""
 PGPASS="postgre"
 PGPORT="5432"
 PGUSERPASS=$(head /dev/random | tr -dc A-Za-z0-9 | head -c 16)
+USER=""
 PGUSERPASSFLAG=true
 HOST="localhost"
 SILENT=false
 PORT="5050"
-
-# Временный ключ для отладки, для ускорения запуска скрипта
-F=true
 
 #region разбор параметров
 
@@ -26,9 +23,10 @@ while true; do
     case "$1" in
         -h | --help )
             echo "    -h, --help        Информация о командах";
-            echo "    -d, --directory   Путь к папке установки";
+            echo "    -d, --directory   Путь к папке установки, по умолчанию /var/www/(--host)";
             echo "    -H, --host        Домен либо ip (заодно имя БД и имя пользователя БД)";
             echo "        --port        Внутренний порт используемый сервером Kestrel до проксирования через Nginx (стоит задавать только если стандартный порт 5050 занят)";
+            echo "    -u  --user        Пользователь от имено которого будет работать сервис и которому будут принадлежать все файлы сайта";
             echo "    -p, --pgpass      Пароль PostgreSQL от юзера postgres";
             echo "                      (какой сейчас установлен или какой поставить при установке PostgreSQL)";
             echo "    -P, --pguserpass  Пароль PostgreSQL от пользователя от оимени которого создается БД (значение ключа --host)";
@@ -42,6 +40,10 @@ while true; do
         ;;
         -p | --pgpass )
             PGPASS="$2"
+            shift 2
+        ;;
+        -u | --user )
+            USER="$2"
             shift 2
         ;;
         -P | --pguserpass )
@@ -61,10 +63,6 @@ while true; do
             SILENT=true
             shift
         ;;
-        -f)
-            F=false
-            shift
-        ;;
         -- )
             shift
             break
@@ -74,6 +72,18 @@ while true; do
         ;;
     esac
 done
+
+# Если пользователь не задан то формируем его имя с хоста
+if [ -z "$USER" ]
+then
+    USER=$(echo "$HOST" | tr -dc '[:alnum:]\n\r')
+fi
+
+# если директория не задана задаем директорию по умолчанию
+if [ -z "$DIRECTORY" ]
+then
+    DIRECTORY="/var/www/$USER/"
+fi
 
 SILENTINSTALL="debconf-apt-progress -- "
 if $SILENT
@@ -94,13 +104,9 @@ distr=$(grep ^ID /etc/*-release | cut -f2 -d'=')
 # версия дистрибутива
 version=$(grep ^VERSION_ID /etc/*-release | cut -f2 -d'=' | sed -e 's/^"//' -e 's/"$//')
 
-
-if $F
-then
-    # ставим "зависимости" скрипта
-    $SILENTINSTALL apt-get update
-    $SILENTINSTALL apt-get -y install wget apt-transport-https dpkg git
-fi
+# ставим "зависимости" скрипта
+$SILENTINSTALL apt-get update
+$SILENTINSTALL apt-get -y install wget apt-transport-https dpkg git
 
 # Окно ошибки
 Error() {
@@ -183,10 +189,7 @@ then
 fi
 
 #проверяем установлен дотнет или нет
-if $F
-then
-    checkDotnetVersion
-fi
+checkDotnetVersion
 
 #endregion
 
@@ -203,10 +206,7 @@ checkPostgreSQLVersion() {
     echo "postgresql-11 установлен"
 }
 
-if $F
-then
-    checkPostgreSQLVersion
-fi
+checkPostgreSQLVersion
 
 # Проверяем пользователя от бд, ведь для безопасности для всего должны быть свои пользователи верно?
 ddd=$(su - postgres -c "psql -c \"CREATE USER \\\"$HOST\\\" WITH PASSWORD '$PGUSERPASS';\"" 2>&1)
@@ -234,7 +234,7 @@ fi
 
 createDb()
 {
-    su - postgres -c "psql -c \"CREATE DATABASE $HOST OWNER $HOST\""
+    su - postgres -c "psql -c \"CREATE DATABASE \\\"$HOST\\\" OWNER \\\"$HOST\\\";\""
     echo "БД $HOST создана"
 }
 
@@ -243,7 +243,7 @@ if (su - postgres -c "psql -l -At" | grep "^$HOST|" > /dev/null)
 then
     if ($SILENT || whiptail --title "PostgreSQL" --yesno "Обнаружена БД скорее всего она осталась от предыдущей установки, удалить?" 11 60)
     then
-        su - postgres -c "dropdb $HOST"
+        su - postgres -c "dropdb \"$HOST\""
         createDb
     else
         echo "БД уже есть, возможно вы хотели запустить обновление а не установку?"
@@ -264,9 +264,17 @@ then
     fi
 fi
 
+grep "$USER:" /etc/passwd >/dev/null
+if [ $? != 0 ]
+then
+    useradd $USER --home-dir "$DIRECTORY" --create-home
+    echo "Пользователь $USER создан"
+fi
+
+DIR=$(echo "$DIRECTORY/SunEngine.Build" | tr -s '/')
+
 # качаем файлы SunEngine
-cd $DIRECTORY
-git clone "https://github.com/sunengine/SunEngine.Build" > /dev/null
+su - $USER -c "git clone \"https://github.com/sunengine/SunEngine.Build\" \"$DIR\" > /dev/null"
 exitstatus=$?
 if [ $exitstatus != 0 ]
 then
@@ -274,24 +282,30 @@ then
     exit 0;
 fi
 
-cd "SunEngine.Build"
+# DataBaseConnection.json
+su - $USER -c "sed -i \"s/<DataBaseName>/$HOST/g\" \"$DIR/Config.server.template/DataBaseConnection.json\""
+su - $USER -c "sed -i \"s/<DataBaseUser>/$HOST/g\" \"$DIR/Config.server.template/DataBaseConnection.json\""
+su - $USER -c "sed -i \"s/<DataBasePassword>/$PGUSERPASS/g\" \"$DIR/Config.server.template/DataBaseConnection.json\""
 
+# SunEngine.json
+su - $USER -c "sed -i \"s/<domain>/$HOST/g\" \"$DIR/Config.server.template/SunEngine.json\""
+su - $USER -c "sed -i \"s/<port>/$PORT/g\" \"$DIR/Config.server.template/SunEngine.json\""
 
-sed -i "s/<DataBaseName>/$HOST/g" "Config.server.template/DataBaseConnection.json"
-sed -i "s/<DataBaseUser>/$HOST/g" "Config.server.template/DataBaseConnection.json"
-sed -i "s/<DataBasePassword>/$PGUSERPASS/g" "Config.server.template/DataBaseConnection.json"
+ADMINUSERNAME="admin"
+ADMINPASSWORD="nimda"
+ADMINEMAIL="admin@email"
 
-sed -i "s/<domain>/$HOST/g" "Config.server.template/SunEngine.json"
-sed -i "s/<port>/$PORT/g" "Config.server.template/SunEngine.json"
+# DataBaseConnection.json
+su - $USER -c "sed -i \"s/<admin-email>/$ADMINEMAIL/g\" \"$DIR/Config.server.template/Init/Users.json\""
+su - $USER -c "sed -i \"s/<admin-user-name>/$ADMINUSERNAME/g\" \"$DIR/Config.server.template/Init/Users.json\""
+su - $USER -c "sed -i \"s/<admin-password>/$ADMINPASSWORD/g\" \"$DIR/Config.server.template/Init/Users.json\""
 
+echo -e "Создан пользователь администратор\nимя пользователя: $ADMINUSERNAME\nпароль: $ADMINPASSWORD\n email: $ADMINEMAIL"
 
-cp -r "Config.server.template" "Config"
+# index-page.json
+#su - $USER -c "sed -i \"s/<admin-user-name>/$ADMINEMAIL/g\" \"$DIR/Config.server.template/Init/Materials/index-page.json\""
 
-cd "Server"
+su - $USER -c "cp -r \"$DIR/Config.server.template\" \"$DIR/Config\""
 
 # Заполняем БД данными
-dotnet SunEngine.dll init migrate
-
-
-
-#echo $ddd
+su - $USER -c "dotnet \"$DIR/Server/SunEngine.dll\" config:\"$DIR/Config\" init migrate"

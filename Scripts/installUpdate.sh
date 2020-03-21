@@ -23,7 +23,7 @@ while true; do
     case "$1" in
         -h | --help )
             echo "    -h, --help        Информация о командах";
-            echo "    -d, --directory   Путь к папке установки, по умолчанию /var/www/(--host)";
+            echo "    -d, --directory   Полный путь к папке установки, по умолчанию /var/www/(--host)";
             echo "    -H, --host        Домен либо ip (заодно имя БД и имя пользователя БД)";
             echo "        --port        Внутренний порт используемый сервером Kestrel до проксирования через Nginx (стоит задавать только если стандартный порт 5050 занят)";
             echo "    -u  --user        Пользователь от имено которого будет работать сервис и которому будут принадлежать все файлы сайта";
@@ -290,6 +290,7 @@ su - $USER -c "sed -i \"s/<DataBasePassword>/$PGUSERPASS/g\" \"$DIR/Config.serve
 # SunEngine.json
 su - $USER -c "sed -i \"s/<domain>/$HOST/g\" \"$DIR/Config.server.template/SunEngine.json\""
 su - $USER -c "sed -i \"s/<port>/$PORT/g\" \"$DIR/Config.server.template/SunEngine.json\""
+su - $USER -c "sed -i \"s!auto!$DIR!g\" \"$DIR/Config.server.template/SunEngine.json\""
 
 ADMINUSERNAME="admin"
 ADMINPASSWORD="nimda"
@@ -300,12 +301,37 @@ su - $USER -c "sed -i \"s/<admin-email>/$ADMINEMAIL/g\" \"$DIR/Config.server.tem
 su - $USER -c "sed -i \"s/<admin-user-name>/$ADMINUSERNAME/g\" \"$DIR/Config.server.template/Init/Users.json\""
 su - $USER -c "sed -i \"s/<admin-password>/$ADMINPASSWORD/g\" \"$DIR/Config.server.template/Init/Users.json\""
 
-echo -e "Создан пользователь администратор\nимя пользователя: $ADMINUSERNAME\nпароль: $ADMINPASSWORD\n email: $ADMINEMAIL"
+echo -e "Создан пользователь администратор\nимя пользователя: $ADMINUSERNAME\nпароль: $ADMINPASSWORD\nemail: $ADMINEMAIL"
 
 # index-page.json
-#su - $USER -c "sed -i \"s/<admin-user-name>/$ADMINEMAIL/g\" \"$DIR/Config.server.template/Init/Materials/index-page.json\""
+su - $USER -c "sed -i \"s/<admin-user-name>/$ADMINUSERNAME/g\" \"$DIR/Config.server.template/Init/Materials/index-page.json\""
 
+# копируем настройки с темплейта
 su - $USER -c "cp -r \"$DIR/Config.server.template\" \"$DIR/Config\""
+
+# systemd
+echo "настраиваю systemd демон $HOST.service"
+su - $USER -c "sed -i \"s/<host>/$HOST/g\" \"$DIR/Resources/systemd.template\""
+su - $USER -c "sed -i \"s/<dir>/$DIR/g\" \"$DIR/Resources/systemd.template\""
+su - $USER -c "sed -i \"s/<user>/$USER/g\" \"$DIR/Resources/systemd.template\""
+cp "/etc/systemd/system/$HOST.service" "$DIR/Resources/systemd.template"
+
+# добавляем сервис в автозагрузку
+systemctl enable $HOST
+# запускаем сервис 
+systemctl start $HOST
+
+echo "ставим вебсервер nginx"
+$SILENTINSTALL apt-get -y install nginx
+
+# nginx
+su - $USER -c "sed -i \"s/<host>/$HOST/g\" \"$DIR/Resources/nginx.template\""
+su - $USER -c "sed -i \"s!<wwwroot>!$DIR/wwwroot!g\" \"$DIR/Resources/nginx.template\""
+su - $USER -c "sed -i \"s/<port>/$PORT/g\" \"$DIR/Resources/nginx.template\""
+# настраиваем проксирование сайта через nginx
+cp "/etc/nginx/sites-available/$HOST" "$DIR/Resources/nginx.template"
+# включаем сайт?
+ln -s "/etc/nginx/sites-enabled/$HOST" "/etc/nginx/sites-available/$HOST"
 
 # Заполняем БД данными
 su - $USER -c "dotnet \"$DIR/Server/SunEngine.dll\" config:\"$DIR/Config\" init migrate"
